@@ -1,5 +1,8 @@
+extern crate rand;
+
 use std::ops;
 use std::f64;
+use rand::Rng;
 
 #[derive(Debug, Clone, Copy)]
 struct Vec3 {
@@ -11,7 +14,9 @@ impl Vec3 {
     pub fn new(e1: f64, e2: f64, e3: f64) -> Vec3 {
         Vec3 {e: [e1, e2, e3]}
     }
-
+    pub fn zero() -> Vec3 {
+        Vec3 {e: [0.0, 0.0, 0.0]}
+    }
     pub fn one() -> Vec3 {
         Vec3 {e: [1.0, 1.0, 1.0]}
     }
@@ -76,6 +81,12 @@ impl ops::Add<Vec3> for Vec3 {
     }
 }
 
+impl ops::AddAssign<Vec3> for Vec3 {
+    fn add_assign(&mut self, v: Vec3) {
+        *self = *self + v;
+    }
+}
+
 impl ops::Sub<Vec3> for Vec3 {
     type Output = Vec3;
     fn sub(self, v: Vec3) -> Vec3 {
@@ -94,6 +105,12 @@ impl ops::Mul<Vec3> for f64 {
     type Output = Vec3;
     fn mul(self, v: Vec3) -> Vec3 {
         v * self
+    }
+}
+
+impl ops::MulAssign<f64> for Vec3 {
+    fn mul_assign(&mut self, f: f64) {
+        *self = *self * f;
     }
 }
 
@@ -220,6 +237,34 @@ impl Hitable for List<&Hitable> {
     }
 }
 
+struct Camera {
+    lower_left_corner: Vec3,
+    horizontal: Vec3,
+    vertical: Vec3,
+    origin: Vec3
+}
+
+impl Default for Camera {
+    fn default() -> Camera {
+        Camera {
+            lower_left_corner: Vec3::new(-2.0, -1.0, -1.0),
+            horizontal: Vec3::new(4.0, 0.0, 0.0),
+            vertical: Vec3::new(0.0, 2.0, 0.0),
+            origin: Vec3::new(0.0, 0.0, 0.0)
+        }
+    }
+}
+
+impl Camera {
+    fn new() -> Camera {
+        Camera {..Default::default()}
+    }
+
+    fn get_ray(&self, u: f64, v: f64) -> Ray {
+        Ray::new(self.origin, self.lower_left_corner + u*self.horizontal + v*self.vertical - self.origin)
+    }
+}
+
 fn color(ray: &Ray, world: &Hitable) -> Vec3 {
     match world.hit(ray, 0.0, f64::MAX) {
         Some(hit_record) => {
@@ -234,10 +279,8 @@ fn color(ray: &Ray, world: &Hitable) -> Vec3 {
 fn main() {
     let nx = 200;
     let ny = 100;
-    let lower_left_corner = Vec3::new(-2.0, -1.0, -1.0);
-    let horizontal = Vec3::new(4.0, 0.0, 0.0);
-    let vertical = Vec3::new(0.0, 2.0, 0.0);
-    let origin = Vec3::new(0.0, 0.0, 0.0);
+    let ns = 100;
+    let camera = Camera::new();
 
     let sphere1 = Sphere::new(Vec3::new(0.0, 0.0, -1.0), 0.5);
     let ground = Sphere::new(Vec3::new(0.0, -100.5, -1.0), 100.0);
@@ -245,12 +288,18 @@ fn main() {
     let list : List<&Hitable> = List::new().add(&sphere1 as &Hitable).add(&ground as &Hitable);
 
     print!("P3\n{} {}\n255\n", nx, ny);
+
+    let mut random = rand::thread_rng();
     for j in (0..ny).rev() {
         for i in 0..nx {
-            let u = i as f64 / nx as f64;
-            let v = j as f64 / ny as f64;
-            let ray = Ray::new(origin, lower_left_corner + u*horizontal + v*vertical);
-            let col = color(&ray, &list) * 255.99;
+            let mut col = Vec3::zero();
+            for s in 0..ns {
+                let u = (i as f64 + random.gen::<f64>()) / nx as f64;
+                let v = (j as f64 + random.gen::<f64>()) / ny as f64;
+                let ray = camera.get_ray(u, v);
+                col += color(&ray, &list);
+            }
+            col *= 255.99 / ns as f64;
             println!("{} {} {}", col.r() as i64, col.g() as i64, col.b() as i64);
         }
     }
