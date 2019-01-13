@@ -94,6 +94,13 @@ impl ops::Sub<Vec3> for Vec3 {
     }
 }
 
+impl ops::Mul<Vec3> for Vec3 {
+    type Output = Vec3;
+    fn mul(self, v: Vec3) -> Vec3 {
+        Vec3{e: [self.e[0] * v.e[0], self.e[1] * v.e[1], self.e[2] * v.e[2]]}
+    }
+}
+
 impl ops::Mul<f64> for Vec3 {
     type Output = Vec3;
     fn mul(self, f: f64) -> Vec3 {
@@ -137,28 +144,30 @@ impl Ray {
     }
 }
 
-struct HitRecord {
+struct HitRecord<'a> {
     t: f64,
     p: Vec3,
-    normal: Vec3
+    normal: Vec3,
+    material: &'a Material
 }
 
 trait Hitable {
     fn hit(&self, ray: &Ray, t_min: f64, t_max: f64) -> Option<HitRecord>;
 }
 
-struct Sphere {
+struct Sphere<T: Material> {
     center: Vec3,
-    radius: f64
+    radius: f64,
+    material: T
 }
 
-impl Sphere {
-    fn new(center: Vec3, radius: f64) -> Sphere {
-        Sphere {center, radius}
+impl<T: Material> Sphere<T> {
+    fn new(center: Vec3, radius: f64, material: T) -> Sphere<T> {
+        Sphere {center, radius, material}
     }
 }
 
-impl Hitable for Sphere {
+impl<T: Material> Hitable for Sphere<T> {
     fn hit(&self, ray: &Ray, t_min: f64, t_max: f64) -> Option<HitRecord> {
         let oc = ray.origin - self.center;
         let a = ray.direction.dot(&ray.direction);
@@ -173,7 +182,8 @@ impl Hitable for Sphere {
                 return Some(HitRecord {
                     t,
                     p,
-                    normal: (p - self.center) / self.radius
+                    normal: (p - self.center) / self.radius,
+                    material: &self.material
                 });
             }
             let t = (-b + disc.sqrt()) / (2.0 * a);
@@ -182,7 +192,8 @@ impl Hitable for Sphere {
                 return Some(HitRecord {
                     t,
                     p,
-                    normal: (p - self.center) / self.radius
+                    normal: (p - self.center) / self.radius,
+                    material: &self.material
                 });
             }
         }
@@ -223,7 +234,7 @@ impl<'a, T> Iterator for ListIterator<'a, T> {
     }
 }
 
-impl Hitable for List<&Hitable> {
+impl<'a> Hitable for List<&Hitable> {
     fn hit(&self, ray: &Ray, t_min: f64, t_max: f64) -> Option<HitRecord> {
         let mut closest = t_max;
         let mut rec_option = None;
@@ -235,6 +246,63 @@ impl Hitable for List<&Hitable> {
         }
         rec_option
     }
+}
+
+struct ScatterRecord {
+    scattered: Ray,
+    attenuation: Vec3
+}
+
+trait Material {
+    fn scatter(&self, r_in: &Ray, hit_record: &HitRecord) -> Option<ScatterRecord>;
+}
+
+struct Metal {
+    albedo: Vec3,
+    fuzz: f64
+}
+
+impl Metal {
+    fn new(albedo: Vec3, fuzz: f64) -> Metal {
+        let fuzz = fuzz.max(0.0).min(1.0);
+        Metal {albedo, fuzz}
+    }
+}
+
+
+impl Material for Metal {
+    fn scatter(&self, r_in: &Ray, hit_record: &HitRecord) -> Option<ScatterRecord> {
+        let reflected = reflect(r_in.direction.normalized(), hit_record.normal);
+        let scattered = Ray::new(hit_record.p, reflected + self.fuzz * random_in_unit_sphere());
+        let attenuation = self.albedo;
+        if scattered.direction.dot(&hit_record.normal) > 0.0 {
+            Some(ScatterRecord{scattered, attenuation})
+        } else {
+            None
+        }
+    }   
+}
+
+struct Lambertian {
+    albedo: Vec3
+}
+
+impl Lambertian {
+    fn new(albedo: Vec3) -> Self {
+        Self {albedo}
+    }
+}
+
+impl Material for Lambertian {
+    fn scatter(&self, _r_in: &Ray, hit_record: &HitRecord) -> Option<ScatterRecord> {
+        let target = hit_record.p + hit_record.normal + random_in_unit_sphere();
+        let scattered = Ray::new(hit_record.p, target - hit_record.p);
+        Some(ScatterRecord{scattered, attenuation: self.albedo})
+    }  
+}
+
+fn reflect(v: Vec3, n: Vec3) -> Vec3 {
+    v - 2.0*v.dot(&n) * n
 }
 
 struct Camera {
@@ -275,11 +343,17 @@ fn random_in_unit_sphere() -> Vec3 {
     }
 }
 
-fn color(ray: &Ray, world: &Hitable) -> Vec3 {
+fn color(ray: &Ray, world: &Hitable, depth: i32) -> Vec3 {
     match world.hit(ray, 0.001, f64::MAX) {
         Some(hit_record) => {
-            let target = hit_record.p + hit_record.normal + random_in_unit_sphere();
-            0.5 * color(&Ray::new(hit_record.p, target - hit_record.p), world)},
+            if depth >= 50 {
+                return Vec3::zero();
+            }
+            match hit_record.material.scatter(ray, &hit_record) {
+                Some (scatter_record) => scatter_record.attenuation * color(&scatter_record.scattered, world, depth + 1),
+                None => Vec3::zero()
+            }
+        }
         None => {
             let t = 0.5 * (ray.direction.normalized().y() + 1.0);
             (1.0 - t) * Vec3::one() + t * Vec3::new(0.5, 0.7, 1.0)
@@ -297,10 +371,12 @@ fn main() {
     let ns = 100;
     let camera = Camera::new();
 
-    let sphere1 = Sphere::new(Vec3::new(0.0, 0.0, -1.0), 0.5);
-    let ground = Sphere::new(Vec3::new(0.0, -100.5, -1.0), 100.0);
+    let sphere1 = Sphere::new(Vec3::new(0.0, 0.0, -1.0), 0.5, Lambertian::new(Vec3::new(0.8, 0.3, 0.3)));
+    let sphere2 = Sphere::new(Vec3::new(1.0, 0.0, -1.0), 0.5, Metal::new(Vec3::new(0.8, 0.6, 0.2), 1.0));
+    let sphere3 = Sphere::new(Vec3::new(-1.0, 0.0, -1.0), 0.5, Metal::new(Vec3::new(0.8, 0.8, 0.8), 0.3));
+    let ground =  Sphere::new(Vec3::new(0.0, -100.5, -1.0), 100.0, Lambertian::new(Vec3::new(0.8, 0.8, 0.0)));
 
-    let list : List<&Hitable> = List::new().add(&sphere1 as &Hitable).add(&ground as &Hitable);
+    let list : List<&Hitable> = List::new().add(&sphere1 as &Hitable).add(&sphere2 as &Hitable).add(&sphere3 as &Hitable).add(&ground as &Hitable);
 
     print!("P3\n{} {}\n255\n", nx, ny);
 
@@ -312,7 +388,7 @@ fn main() {
                 let u = (i as f64 + random.gen::<f64>()) / nx as f64;
                 let v = (j as f64 + random.gen::<f64>()) / ny as f64;
                 let ray = camera.get_ray(u, v);
-                col += color(&ray, &list);
+                col += color(&ray, &list, 0);
             }
             col = gamma_correct(&(col / ns as f64)) * 255.99;
             println!("{} {} {}", col.r() as i64, col.g() as i64, col.b() as i64);
