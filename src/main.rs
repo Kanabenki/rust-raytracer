@@ -265,10 +265,21 @@ impl Camera {
     }
 }
 
+fn random_in_unit_sphere() -> Vec3 {
+    let mut random = rand::thread_rng();
+    loop {
+        let p = 2.0 * Vec3::new(random.gen(), random.gen(), random.gen()) - Vec3::one();
+        if p.squared_length() < 1.0 {
+            return p;
+        }
+    }
+}
+
 fn color(ray: &Ray, world: &Hitable) -> Vec3 {
-    match world.hit(ray, 0.0, f64::MAX) {
+    match world.hit(ray, 0.001, f64::MAX) {
         Some(hit_record) => {
-            0.5 * (hit_record.normal + 1.0)},
+            let target = hit_record.p + hit_record.normal + random_in_unit_sphere();
+            0.5 * color(&Ray::new(hit_record.p, target - hit_record.p), world)},
         None => {
             let t = 0.5 * (ray.direction.normalized().y() + 1.0);
             (1.0 - t) * Vec3::one() + t * Vec3::new(0.5, 0.7, 1.0)
@@ -276,9 +287,13 @@ fn color(ray: &Ray, world: &Hitable) -> Vec3 {
     }
 }
 
+fn gamma_correct(v: &Vec3) -> Vec3 {
+    Vec3::new(v.r().sqrt(), v.g().sqrt(), v.b().sqrt())
+}
+
 fn main() {
-    let nx = 200;
-    let ny = 100;
+    let nx = 2000;
+    let ny = 1000;
     let ns = 100;
     let camera = Camera::new();
 
@@ -293,13 +308,13 @@ fn main() {
     for j in (0..ny).rev() {
         for i in 0..nx {
             let mut col = Vec3::zero();
-            for s in 0..ns {
+            for _ in 0..ns {
                 let u = (i as f64 + random.gen::<f64>()) / nx as f64;
                 let v = (j as f64 + random.gen::<f64>()) / ny as f64;
                 let ray = camera.get_ray(u, v);
                 col += color(&ray, &list);
             }
-            col *= 255.99 / ns as f64;
+            col = gamma_correct(&(col / ns as f64)) * 255.99;
             println!("{} {} {}", col.r() as i64, col.g() as i64, col.b() as i64);
         }
     }
