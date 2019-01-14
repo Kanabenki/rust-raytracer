@@ -364,26 +364,28 @@ impl Material for Dielectric {
     }
 }
 
-struct Camera {
-    lower_left_corner: Vec3,
-    horizontal: Vec3,
-    vertical: Vec3,
-    origin: Vec3
-}
-
-impl Default for Camera {
-    fn default() -> Camera {
-        Camera {
-            lower_left_corner: Vec3::new(-2.0, -1.0, -1.0),
-            horizontal: Vec3::new(4.0, 0.0, 0.0),
-            vertical: Vec3::new(0.0, 2.0, 0.0),
-            origin: Vec3::new(0.0, 0.0, 0.0)
+fn random_in_unit_disk() -> Vec3 {
+    let mut rand = rand::thread_rng();
+    loop {
+        let p = 2.0*Vec3::new(rand.gen(), rand.gen(), 0.0) - Vec3::new(1.0, 1.0, 0.0);
+        if p.squared_length() < 1.0 {
+            return p;
         }
     }
 }
 
+struct Camera {
+    lower_left_corner: Vec3,
+    horizontal: Vec3,
+    vertical: Vec3,
+    origin: Vec3,
+    u: Vec3,
+    v: Vec3,
+    lens_radius: f64
+}
+
 impl Camera {
-    fn new(look_from: Vec3, look_at: Vec3, vup: Vec3, vfov: f64, aspect: f64) -> Camera {
+    fn new(look_from: Vec3, look_at: Vec3, vup: Vec3, vfov: f64, aspect: f64, aperture: f64, focus_dist: f64) -> Camera {
         let theta = vfov * PI / 180.0;
         let half_height = (theta / 2.0).tan();
         let half_width = half_height * aspect;
@@ -391,15 +393,20 @@ impl Camera {
         let u = vup.cross(&look_dir).normalized();
         let v = look_dir.cross(&u);
         Camera {
-            lower_left_corner: look_from - half_width*u - half_height*v - look_dir,
-            horizontal: 2.0*half_width*u,
-            vertical: 2.0*half_height*v,
-            origin: look_from
+            lower_left_corner: look_from - focus_dist * (half_width*u + half_height*v + look_dir),
+            horizontal: 2.0*half_width*focus_dist*u,
+            vertical: 2.0*half_height*focus_dist*v,
+            origin: look_from,
+            u,
+            v,
+            lens_radius: aperture / 2.0
         }
     }
 
-    fn get_ray(&self, u: f64, v: f64) -> Ray {
-        Ray::new(self.origin, self.lower_left_corner + u*self.horizontal + v*self.vertical - self.origin)
+    fn get_ray(&self, s: f64, t: f64) -> Ray {
+        let rand_v = self.lens_radius * random_in_unit_disk();
+        let lens_offset = self.u * rand_v.x() + self.v * rand_v.y();
+        Ray::new(self.origin + lens_offset, self.lower_left_corner + s*self.horizontal + t*self.vertical - self.origin - lens_offset)
     }
 }
 
@@ -436,10 +443,15 @@ fn gamma_correct(v: &Vec3) -> Vec3 {
 }
 
 fn main() {
+    let look_from = Vec3::new(3.0, 3.0, 2.0);
+    let look_at = Vec3::new(0.0, 0.0, -1.0);
+    let vup = Vec3::new(0.0, 1.0, 0.0);
     let nx = 2000;
     let ny = 1000;
     let ns = 100;
-    let camera = Camera::new(Vec3::new(-2.0, 2.0, 1.0), Vec3::new(0.0, 0.0, -1.0), Vec3::new(0.0, 1.0, 0.0), 90.0, nx as f64 / ny as f64);
+    let aperture = 0.2;
+    let focus_dist = (look_from - look_at).length();
+    let camera = Camera::new(look_from, look_at, vup, 20.0, nx as f64 / ny as f64, aperture, focus_dist);
 
     let sphere1 = Sphere::new(Vec3::new(0.0, 0.0, -1.0), 0.5, Lambertian::new(Vec3::new(0.8, 0.3, 0.3)));
     let sphere2 = Sphere::new(Vec3::new(1.0, 0.0, -1.0), 0.5, Dielectric::new(1.5));
