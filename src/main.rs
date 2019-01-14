@@ -305,6 +305,64 @@ fn reflect(v: Vec3, n: Vec3) -> Vec3 {
     v - 2.0*v.dot(&n) * n
 }
 
+fn refract(v: Vec3, n: Vec3, ni_over_nt: f64) -> Option<Vec3> {
+    let v = v.normalized();
+    let dt = v.dot(&n);
+    let discriminant = 1.0 - (ni_over_nt).powi(2) * (1.0 - dt.powi(2));
+    if discriminant > 0.0 {
+        Some(ni_over_nt * (v - n*dt) - n*discriminant.sqrt())
+    } else {
+        None
+    }
+}
+
+fn schlick(cosine: f64, ref_ind: f64) -> f64 {
+    let r0 = ((1.0 - ref_ind) / (1.0 + ref_ind)).powi(2);
+    r0 + (1.0 - r0) * (1.0 - cosine).powi(5)
+}
+
+struct Dielectric {
+    ref_ind: f64
+}
+
+impl Dielectric {
+    fn new(ref_ind: f64) -> Dielectric {
+        Dielectric {ref_ind}
+    }
+}
+
+impl Material for Dielectric {
+    fn scatter(&self, r_in: &Ray, hit_record: &HitRecord) -> Option<ScatterRecord> {
+        let outward_normal;
+        let ni_over_nt;
+        let cosine;
+        let reflected = reflect(r_in.direction, hit_record.normal);
+        let attenuation = Vec3::one();
+        if r_in.direction.dot(&hit_record.normal) > 0.0 {
+            outward_normal = -hit_record.normal;
+            ni_over_nt = self.ref_ind;
+            cosine = self.ref_ind * r_in.direction.dot(&hit_record.normal) / r_in.direction.length();
+        } else {
+            outward_normal = hit_record.normal;
+            ni_over_nt = 1.0 / self.ref_ind;
+            cosine = - r_in.direction.dot(&hit_record.normal) / r_in.direction.length();
+        }
+        match refract(r_in.direction, outward_normal, ni_over_nt) {
+            Some(refracted) => {
+                let reflect_prob = schlick(cosine, self.ref_ind);
+                let scatter_dir;
+                if rand::thread_rng().gen::<f64>() < reflect_prob {
+                    scatter_dir = reflected;
+                } else {
+                    scatter_dir = refracted;
+                }
+                Some(ScatterRecord{attenuation, scattered: Ray::new(hit_record.p, scatter_dir)})
+                },
+            None => Some(ScatterRecord{attenuation, scattered: Ray::new(hit_record.p, reflected)})
+        }
+    }
+}
+
 struct Camera {
     lower_left_corner: Vec3,
     horizontal: Vec3,
@@ -372,8 +430,8 @@ fn main() {
     let camera = Camera::new();
 
     let sphere1 = Sphere::new(Vec3::new(0.0, 0.0, -1.0), 0.5, Lambertian::new(Vec3::new(0.8, 0.3, 0.3)));
-    let sphere2 = Sphere::new(Vec3::new(1.0, 0.0, -1.0), 0.5, Metal::new(Vec3::new(0.8, 0.6, 0.2), 1.0));
-    let sphere3 = Sphere::new(Vec3::new(-1.0, 0.0, -1.0), 0.5, Metal::new(Vec3::new(0.8, 0.8, 0.8), 0.3));
+    let sphere2 = Sphere::new(Vec3::new(1.0, 0.0, -1.0), 0.5, Dielectric::new(1.5));
+    let sphere3 = Sphere::new(Vec3::new(-1.0, 0.0, -1.0), 0.5, Metal::new(Vec3::new(0.8, 0.8, 0.8), 0.1));
     let ground =  Sphere::new(Vec3::new(0.0, -100.5, -1.0), 100.0, Lambertian::new(Vec3::new(0.8, 0.8, 0.0)));
 
     let list : List<&Hitable> = List::new().add(&sphere1 as &Hitable).add(&sphere2 as &Hitable).add(&sphere3 as &Hitable).add(&ground as &Hitable);
