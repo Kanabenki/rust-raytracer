@@ -2,6 +2,7 @@ extern crate rand;
 
 use std::ops;
 use std::f64;
+use std::f64::consts::PI;
 use rand::Rng;
 
 #[derive(Debug, Clone, Copy)]
@@ -382,8 +383,19 @@ impl Default for Camera {
 }
 
 impl Camera {
-    fn new() -> Camera {
-        Camera {..Default::default()}
+    fn new(look_from: Vec3, look_at: Vec3, vup: Vec3, vfov: f64, aspect: f64) -> Camera {
+        let theta = vfov * PI / 180.0;
+        let half_height = (theta / 2.0).tan();
+        let half_width = half_height * aspect;
+        let look_dir = (look_from - look_at).normalized();
+        let u = vup.cross(&look_dir).normalized();
+        let v = look_dir.cross(&u);
+        Camera {
+            lower_left_corner: look_from - half_width*u - half_height*v - look_dir,
+            horizontal: 2.0*half_width*u,
+            vertical: 2.0*half_height*v,
+            origin: look_from
+        }
     }
 
     fn get_ray(&self, u: f64, v: f64) -> Ray {
@@ -427,7 +439,7 @@ fn main() {
     let nx = 2000;
     let ny = 1000;
     let ns = 100;
-    let camera = Camera::new();
+    let camera = Camera::new(Vec3::new(-2.0, 2.0, 1.0), Vec3::new(0.0, 0.0, -1.0), Vec3::new(0.0, 1.0, 0.0), 90.0, nx as f64 / ny as f64);
 
     let sphere1 = Sphere::new(Vec3::new(0.0, 0.0, -1.0), 0.5, Lambertian::new(Vec3::new(0.8, 0.3, 0.3)));
     let sphere2 = Sphere::new(Vec3::new(1.0, 0.0, -1.0), 0.5, Dielectric::new(1.5));
