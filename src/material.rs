@@ -6,6 +6,26 @@ use crate::hitable::HitRecord;
 use crate::utils::random_in_unit_sphere;
 
 
+fn reflect(v: Vec3, n: Vec3) -> Vec3 {
+    v - 2.0*v.dot(&n) * n
+}
+
+fn refract(v: Vec3, n: Vec3, ni_over_nt: f64) -> Option<Vec3> {
+    let v = v.normalized();
+    let dt = v.dot(&n);
+    let discriminant = 1.0 - (ni_over_nt).powi(2) * (1.0 - dt.powi(2));
+    if discriminant > 0.0 {
+        Some(ni_over_nt * (v - n*dt) - n*discriminant.sqrt())
+    } else {
+        None
+    }
+}
+
+fn schlick(cosine: f64, ref_ind: f64) -> f64 {
+    let r0 = ((1.0 - ref_ind) / (1.0 + ref_ind)).powi(2);
+    r0 + (1.0 - r0) * (1.0 - cosine).powi(5)
+}
+
 pub struct ScatterRecord {
     pub scattered: Ray,
     pub attenuation: Vec3
@@ -57,26 +77,6 @@ impl Material for Lambertian {
         let scattered = Ray::new(hit_record.p, target - hit_record.p);
         Some(ScatterRecord{scattered, attenuation: self.albedo})
     }  
-}
-
-fn reflect(v: Vec3, n: Vec3) -> Vec3 {
-    v - 2.0*v.dot(&n) * n
-}
-
-fn refract(v: Vec3, n: Vec3, ni_over_nt: f64) -> Option<Vec3> {
-    let v = v.normalized();
-    let dt = v.dot(&n);
-    let discriminant = 1.0 - (ni_over_nt).powi(2) * (1.0 - dt.powi(2));
-    if discriminant > 0.0 {
-        Some(ni_over_nt * (v - n*dt) - n*discriminant.sqrt())
-    } else {
-        None
-    }
-}
-
-fn schlick(cosine: f64, ref_ind: f64) -> f64 {
-    let r0 = ((1.0 - ref_ind) / (1.0 + ref_ind)).powi(2);
-    r0 + (1.0 - r0) * (1.0 - cosine).powi(5)
 }
 
 pub struct Dielectric {
