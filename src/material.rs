@@ -1,13 +1,12 @@
-use rand::Rng;
+use rand::random;
 
-use crate::vec3::Vec3;
-use crate::ray::Ray;
 use crate::hitable::HitRecord;
+use crate::ray::Ray;
 use crate::utils::random_in_unit_sphere;
-
+use crate::vec3::Vec3;
 
 fn reflect(v: Vec3, n: Vec3) -> Vec3 {
-    v - 2.0*v.dot(&n) * n
+    v - 2.0 * v.dot(&n) * n
 }
 
 fn refract(v: Vec3, n: Vec3, ni_over_nt: f64) -> Option<Vec3> {
@@ -15,7 +14,7 @@ fn refract(v: Vec3, n: Vec3, ni_over_nt: f64) -> Option<Vec3> {
     let dt = v.dot(&n);
     let discriminant = 1.0 - (ni_over_nt).powi(2) * (1.0 - dt.powi(2));
     if discriminant > 0.0 {
-        Some(ni_over_nt * (v - n*dt) - n*discriminant.sqrt())
+        Some(ni_over_nt * (v - n * dt) - n * discriminant.sqrt())
     } else {
         None
     }
@@ -28,7 +27,7 @@ fn schlick(cosine: f64, ref_ind: f64) -> f64 {
 
 pub struct ScatterRecord {
     pub scattered: Ray,
-    pub attenuation: Vec3
+    pub attenuation: Vec3,
 }
 
 pub trait Material {
@@ -37,37 +36,42 @@ pub trait Material {
 
 pub struct Metal {
     albedo: Vec3,
-    fuzz: f64
+    fuzz: f64,
 }
 
 impl Metal {
     pub fn new(albedo: Vec3, fuzz: f64) -> Metal {
         let fuzz = fuzz.max(0.0).min(1.0);
-        Metal {albedo, fuzz}
+        Metal { albedo, fuzz }
     }
 }
-
 
 impl Material for Metal {
     fn scatter(&self, r_in: &Ray, hit_record: &HitRecord) -> Option<ScatterRecord> {
         let reflected = reflect(r_in.direction.normalized(), hit_record.normal);
-        let scattered = Ray::new(hit_record.p, reflected + self.fuzz * random_in_unit_sphere());
+        let scattered = Ray::new(
+            hit_record.p,
+            reflected + self.fuzz * random_in_unit_sphere(),
+        );
         let attenuation = self.albedo;
         if scattered.direction.dot(&hit_record.normal) > 0.0 {
-            Some(ScatterRecord{scattered, attenuation})
+            Some(ScatterRecord {
+                scattered,
+                attenuation,
+            })
         } else {
             None
         }
-    }   
+    }
 }
 
 pub struct Lambertian {
-    albedo: Vec3
+    albedo: Vec3,
 }
 
 impl Lambertian {
     pub fn new(albedo: Vec3) -> Self {
-        Self {albedo}
+        Self { albedo }
     }
 }
 
@@ -75,17 +79,20 @@ impl Material for Lambertian {
     fn scatter(&self, _r_in: &Ray, hit_record: &HitRecord) -> Option<ScatterRecord> {
         let target = hit_record.p + hit_record.normal + random_in_unit_sphere();
         let scattered = Ray::new(hit_record.p, target - hit_record.p);
-        Some(ScatterRecord{scattered, attenuation: self.albedo})
-    }  
+        Some(ScatterRecord {
+            scattered,
+            attenuation: self.albedo,
+        })
+    }
 }
 
 pub struct Dielectric {
-    ref_ind: f64
+    ref_ind: f64,
 }
 
 impl Dielectric {
     pub fn new(ref_ind: f64) -> Dielectric {
-        Dielectric {ref_ind}
+        Dielectric { ref_ind }
     }
 }
 
@@ -99,24 +106,30 @@ impl Material for Dielectric {
         if r_in.direction.dot(&hit_record.normal) > 0.0 {
             outward_normal = -hit_record.normal;
             ni_over_nt = self.ref_ind;
-            cosine = self.ref_ind * r_in.direction.dot(&hit_record.normal) / r_in.direction.length();
+            cosine =
+                self.ref_ind * r_in.direction.dot(&hit_record.normal) / r_in.direction.length();
         } else {
             outward_normal = hit_record.normal;
             ni_over_nt = 1.0 / self.ref_ind;
-            cosine = - r_in.direction.dot(&hit_record.normal) / r_in.direction.length();
+            cosine = -r_in.direction.dot(&hit_record.normal) / r_in.direction.length();
         }
         match refract(r_in.direction, outward_normal, ni_over_nt) {
             Some(refracted) => {
                 let reflect_prob = schlick(cosine, self.ref_ind);
-                let scatter_dir;
-                if rand::thread_rng().gen::<f64>() < reflect_prob {
-                    scatter_dir = reflected;
+                let scatter_dir = if random::<f64>() < reflect_prob {
+                    reflected
                 } else {
-                    scatter_dir = refracted;
-                }
-                Some(ScatterRecord{attenuation, scattered: Ray::new(hit_record.p, scatter_dir)})
-                },
-            None => Some(ScatterRecord{attenuation, scattered: Ray::new(hit_record.p, reflected)})
+                    refracted
+                };
+                Some(ScatterRecord {
+                    attenuation,
+                    scattered: Ray::new(hit_record.p, scatter_dir),
+                })
+            }
+            None => Some(ScatterRecord {
+                attenuation,
+                scattered: Ray::new(hit_record.p, reflected),
+            }),
         }
     }
 }

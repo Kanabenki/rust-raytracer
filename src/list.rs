@@ -1,11 +1,10 @@
-use std::sync::Arc;
 pub enum List<T> {
     Node(T, Box<List<T>>),
-    End
+    End,
 }
 
 pub struct ListIterator<'a, T> {
-    current: &'a List<T>
+    current: &'a List<T>,
 }
 
 impl<T> List<T> {
@@ -17,8 +16,8 @@ impl<T> List<T> {
         List::Node(e, Box::new(self))
     }
 
-    pub fn iter(&self) ->ListIterator<T> {
-        ListIterator{current: self}
+    pub fn iter(&self) -> ListIterator<T> {
+        ListIterator { current: self }
     }
 }
 
@@ -26,8 +25,11 @@ impl<'a, T> Iterator for ListIterator<'a, T> {
     type Item = &'a T;
     fn next(&mut self) -> Option<&'a T> {
         match self.current {
-            List::Node(elem, next) => {self.current = next; Some(elem)},
-            List::End => None
+            List::Node(elem, next) => {
+                self.current = next;
+                Some(elem)
+            }
+            List::End => None,
         }
     }
 }
