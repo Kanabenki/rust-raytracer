@@ -15,43 +15,55 @@ use std::sync::Mutex;
 
 type HitableArc = Arc<Hitable + Send + Sync>;
 
-#[derive(Builder)]
-#[builder(pattern = "owned")]
+#[derive(Builder, Clone)]
 #[builder(default)]
 pub struct Raytracer {
     world: HitableArc,
+    #[builder(default = "self.default_camera()")]
     camera: Camera,
     max_depth: u32,
     thread_nb: u32,
     res_x: u32,
     res_y: u32,
     antialiasing_samples: u32,
+    #[builder(setter(into))]
+    out_file: String,
+}
+
+impl RaytracerBuilder {
+    fn default_camera(&self) -> Camera {
+        match (self.res_x, self.res_y) {
+            (Some(x), Some(y)) => {
+                let look_from = Vec3::new(3.0, 3.0, 2.0);
+                let look_at = Vec3::new(0.0, 0.0, -1.0);
+                Camera::new(
+                    look_from,
+                    look_at,
+                    Vec3::new(0.0, 1.0, 0.0),
+                    20.0,
+                    0.2,
+                    (look_from - look_at).length(),
+                    x as f64 / y as f64,
+                )
+            }
+            _ => Camera::default(),
+        }
+    }
 }
 
 impl Default for Raytracer {
     fn default() -> Self {
-        let look_from = Vec3::new(3.0, 3.0, 2.0);
-        let look_at = Vec3::new(0.0, 0.0, -1.0);
-        let focus_dist = (look_from - look_at).length();
         let res_x = 2000;
         let res_y = 1000;
-        let aspect = res_x as f64 / res_y as f64;
         Raytracer {
             world: Self::build_sample_scene(),
-            camera: Camera::new(
-                look_from,
-                look_at,
-                Vec3::new(0.0, 1.0, 0.0),
-                20.0,
-                aspect,
-                0.2,
-                focus_dist,
-            ),
+            camera: Camera::default(),
             max_depth: 50,
             thread_nb: num_cpus::get() as u32,
-            res_x: 2000,
-            res_y: 1000,
+            res_x,
+            res_y,
             antialiasing_samples: 100,
+            out_file: String::from("out.png"),
         }
     }
 }
@@ -116,7 +128,7 @@ impl Raytracer {
 
         println!("Running with {} threads", thread_nb);
 
-        let path = Path::new("./test.png");
+        let path = Path::new(&self.out_file);
         let file = File::create(path).expect("Could not create file");
         let w = BufWriter::new(file);
         let mut encoder = png::Encoder::new(w, nx, ny);
@@ -145,9 +157,8 @@ impl Raytracer {
                                 let ray = self.camera.get_ray(u, v);
                                 col += self.color(&ray, 0);
                             }
-                            col =
-                                Self::gamma_correct(&(col / self.antialiasing_samples as f64))
-                                    * 255.99;
+                            col = Self::gamma_correct(&(col / self.antialiasing_samples as f64))
+                                * 255.99;
                             let mut data_u = data.lock().expect("Error while locking image buffer");
                             data_u[ind] = col.r() as u8;
                             data_u[ind + 1] = col.g() as u8;
@@ -157,7 +168,8 @@ impl Raytracer {
                     }
                 });
             }
-        }).expect("Error while joining thread");
+        })
+        .expect("Error while joining thread");
 
         writer
             .write_image_data(&data.lock().unwrap())
